@@ -666,6 +666,44 @@ app.get('/api/entries.csv', authAdmin, (_req, res) => {
 });
 
 
+
+app.get('/api/admin/slates', authAdmin, async (req, res) => {
+  try {
+    const sportKey = String(req.query.sport || '');
+    const files = fs.existsSync(SLATE_DIR) ? fs.readdirSync(SLATE_DIR).filter(f => f.endsWith('.json')) : [];
+    const slates = files.map(f => {
+      try {
+        const slate = JSON.parse(fs.readFileSync(path.join(SLATE_DIR, f), 'utf8'));
+        return {
+          pool_id: slate.pool_id,
+          sport_key: slate.sport_key,
+          title: slate.title,
+          created_at: slate.created_at,
+          locked_at: slate.locked_at,
+          picks_count: Array.isArray(slate.picks) ? slate.picks.length : 0,
+          filename: f
+        };
+      } catch { return null; }
+    }).filter(Boolean)
+      .filter(s => !sportKey || s.sport_key === sportKey)
+      .sort((a,b) => String(b.created_at).localeCompare(String(a.created_at)));
+    res.json({ slates, total: slates.length });
+  } catch (e) {
+    res.status(e.status || 500).json({ error:e.message || 'Failed to load saved slates.' });
+  }
+});
+
+app.get('/api/admin/slate/:poolId', authAdmin, async (req, res) => {
+  try {
+    const poolId = String(req.params.poolId || '');
+    const slate = readSlate(poolId);
+    if (!slate) return res.status(404).json({ error:'Saved slate not found.' });
+    res.json(slate);
+  } catch (e) {
+    res.status(e.status || 500).json({ error:e.message || 'Failed to load saved slate.' });
+  }
+});
+
 app.get('/api/admin/all-entries', authAdmin, async (req, res) => {
   try {
     const sportKey = String(req.query.sport || '');
@@ -679,6 +717,33 @@ app.get('/api/admin/all-entries', authAdmin, async (req, res) => {
     res.json({ entries, byPool, total: entries.length });
   } catch (e) {
     res.status(e.status || 500).json({ error:e.message || 'Failed to load all entries.' });
+  }
+});
+
+
+app.get('/api/admin/current-or-latest', authAdmin, async (req, res) => {
+  try {
+    const sportKey = String(req.query.sport || process.env.DEFAULT_SPORT_KEY || 'soccer_fifa_world_cup');
+    try {
+      const slate = await getCurrentSlate(sportKey);
+      const entries = readJsonl(ENTRIES_PATH).filter(e => e.pool_id === slate.pool_id);
+      return res.json({ source:'current', slate, entries, payouts:computePayouts(entries.length, slate), share_url:`${PUBLIC_BASE_URL}/pool.html?sport=${encodeURIComponent(sportKey)}` });
+    } catch (apiErr) {
+      const files = fs.existsSync(SLATE_DIR) ? fs.readdirSync(SLATE_DIR).filter(f => f.endsWith('.json')) : [];
+      const slates = files.map(f => {
+        try { return JSON.parse(fs.readFileSync(path.join(SLATE_DIR, f), 'utf8')); } catch { return null; }
+      }).filter(Boolean)
+        .filter(s => s.sport_key === sportKey)
+        .sort((a,b) => String(b.created_at).localeCompare(String(a.created_at)));
+      if (slates.length) {
+        const slate = slates[0];
+        const entries = readJsonl(ENTRIES_PATH).filter(e => e.pool_id === slate.pool_id);
+        return res.json({ source:'latest_saved_after_api_error', api_error: apiErr.message, slate, entries, payouts:computePayouts(entries.length, slate), share_url:`${PUBLIC_BASE_URL}/pool.html?sport=${encodeURIComponent(sportKey)}` });
+      }
+      throw apiErr;
+    }
+  } catch (e) {
+    res.status(e.status || 500).json({ error:e.message || 'Failed to load current or saved slate.' });
   }
 });
 

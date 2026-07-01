@@ -75,3 +75,18 @@ The admin dashboard has two submission views:
 If you regenerate a pool after users submit, the old entries remain saved but may not appear on the active leaderboard because they belong to the previous `pool_id`.
 
 If you deploy on a free host with ephemeral storage, entries can disappear after a redeploy/restart unless you connect persistent storage or a database.
+
+
+## Admin loading troubleshooting
+
+The admin dashboard now has a visible status/error area and a **Saved Slates** section.
+
+If picks/pools do not load, check:
+
+1. `ODDS_API_KEY` exists in Render/local `.env`.
+2. The Odds API free credits are not exhausted.
+3. The selected sport has upcoming events and odds.
+4. You have clicked **Regenerate Slate** at least once.
+5. You are checking the same deployed domain where users submitted entries.
+
+The dashboard uses `/api/admin/current-or-latest` so it can show the latest saved pool even if a fresh Odds API request fails.

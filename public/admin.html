@@ -39,6 +39,15 @@
     </div>
     <div id="links" class="muted" style="margin-top:10px"></div>
     <pre id="apiResult"></pre>
+    <pre id="adminStatus" class="err"></pre>
+  </section>
+
+  
+  <section class="card">
+    <h2>Saved Slates</h2>
+    <p class="muted">If The Odds API is unavailable or out of credits, this section lets you confirm whether any pools were saved on this server.</p>
+    <button id="savedSlatesBtn" class="ghost">Refresh Saved Slates</button>
+    <table id="savedSlates"><thead><tr><th>Created</th><th>Pool ID</th><th>Title</th><th>Picks</th><th>Locked</th></tr></thead><tbody></tbody></table>
   </section>
 
   <section class="card">
@@ -79,9 +88,18 @@ sportInput.value = params.get('sport') || 'soccer_fifa_world_cup';
 const withToken = path => `${path}${path.includes('?')?'&':'?'}token=${encodeURIComponent(tokenInput.value)}&sport=${encodeURIComponent(sportInput.value)}`;
 
 async function load() {
-  const res = await fetch(withToken('/api/admin/summary'));
-  const data = await res.json();
-  if (!res.ok) { alert(data.error || 'Admin load failed'); return; }
+  const status = document.getElementById('adminStatus');
+  status.textContent = 'Loading admin summary...';
+  const res = await fetch(withToken('/api/admin/current-or-latest'));
+  const data = await res.json().catch(()=>({}));
+  if (!res.ok) {
+    status.textContent = data.error || `Admin load failed with HTTP ${res.status}`;
+    document.getElementById('slate').textContent = 'No slate loaded. Try Test API, Regenerate Slate, or check Render environment variables.';
+    return;
+  }
+  status.textContent = data.api_error
+    ? `Loaded latest saved slate, but current API load failed: ${data.api_error}`
+    : `Loaded ${data.source || 'current'} slate successfully.`;
   document.getElementById('slate').textContent = JSON.stringify({
     pool_id:data.slate.pool_id, sport_key:data.slate.sport_key, title:data.slate.title, locked_at:data.slate.locked_at, share_url:data.share_url, meta:data.slate.meta, picks:data.slate.picks
   }, null, 2);
@@ -89,7 +107,8 @@ async function load() {
   document.getElementById('payouts').textContent = `Share URL: ${data.share_url}\nEntrants: ${p.entrants}\nGross: $${p.gross.toFixed(2)}\nAdmin fee (${p.admin_fee_percent}%): $${p.admin_fee.toFixed(2)}\nNet pot: $${p.net_pot.toFixed(2)}\n1st: $${p.first.toFixed(2)}\n2nd: $${p.second.toFixed(2)}\n3rd: $${p.third.toFixed(2)}`;
   document.getElementById('links').textContent = `Shareable form: ${data.share_url}`;
   await loadBoard();
-  await loadAllEntries();
+  if (typeof loadAllEntries === 'function') await loadAllEntries();
+  if (typeof loadSavedSlates === 'function') await loadSavedSlates();
 }
 async function loadBoard() {
   const res = await fetch(withToken('/api/leaderboard'));
@@ -130,6 +149,25 @@ async function loadAllEntries() {
   });
 }
 document.getElementById('allEntriesBtn').onclick = loadAllEntries;
+
+
+async function loadSavedSlates() {
+  const res = await fetch(withToken('/api/admin/slates'));
+  const data = await res.json().catch(()=>({}));
+  const tb = document.querySelector('#savedSlates tbody');
+  if (!tb) return;
+  tb.innerHTML = '';
+  if (!res.ok) {
+    document.getElementById('adminStatus').textContent = data.error || 'Could not load saved slates.';
+    return;
+  }
+  data.slates.forEach(s => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${s.created_at ? new Date(s.created_at).toLocaleString() : ''}</td><td>${s.pool_id}</td><td>${s.title || ''}</td><td>${s.picks_count}</td><td>${s.locked_at ? 'Yes' : 'No'}</td>`;
+    tb.appendChild(tr);
+  });
+}
+document.getElementById('savedSlatesBtn').onclick = loadSavedSlates;
 
 load();
 loadAllEntries();};

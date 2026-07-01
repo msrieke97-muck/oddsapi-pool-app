@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: oddsapi-pool-app
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: ODDS_API_KEY
+        sync: false
+      - key: ADMIN_TOKEN
+        value: PbvAvcPld9mIZYKL3JZnBWOo0jl4sI7gLrjOUXiegpiy9fdR
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: DEFAULT_SPORT_KEY
+        value: soccer_fifa_world_cup
+      - key: ODDS_REGIONS
+        value: us
+      - key: BUY_IN
+        value: "20"
+      - key: ADMIN_FEE_PERCENT
+        value: "5"
+      - key: PAYOUT_SPLIT
+        value: "70/20/10"
+      - key: TOKEN_TTL_HOURS
+        value: "48"

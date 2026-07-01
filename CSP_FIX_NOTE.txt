@@ -1,0 +1,2 @@
+Fixed Helmet Content Security Policy to allow the app's current inline admin/user scripts and styles.
+Restart the server after replacing the project files.

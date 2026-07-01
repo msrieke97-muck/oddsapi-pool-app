@@ -1,0 +1,65 @@
+# Weekly Sports Pool — The Odds API
+
+This replaces the Balldontlie integration with **The Odds API**.
+
+## Admin token
+
+```text
+PbvAvcPld9mIZYKL3JZnBWOo0jl4sI7gLrjOUXiegpiy9fdR
+```
+
+## Local run
+
+```bash
+npm i
+cp .env.example .env
+npm start
+```
+
+Open:
+
+```text
+User form:
+http://localhost:8080/pool.html?sport=soccer_fifa_world_cup
+
+Admin:
+http://localhost:8080/admin?token=PbvAvcPld9mIZYKL3JZnBWOo0jl4sI7gLrjOUXiegpiy9fdR
+```
+
+## Supported starting sport keys
+
+The app already includes profiles for:
+
+```text
+soccer_fifa_world_cup
+americanfootball_nfl
+americanfootball_ncaaf
+basketball_nba
+icehockey_nhl
+baseball_mlb
+soccer_usa_mls
+```
+
+Use a different sport in the URL:
+
+```text
+http://localhost:8080/pool.html?sport=americanfootball_nfl
+http://localhost:8080/admin?token=PbvAvcPld9mIZYKL3JZnBWOo0jl4sI7gLrjOUXiegpiy9fdR&sport=americanfootball_nfl
+```
+
+## What it generates
+
+For the selected sport/week:
+
+- 3 closest moneyline/head-to-head markets (`h2h`)
+- 3 closest spreads (`spreads`)
+- 3 totals (`totals`)
+- $20 buy-in
+- minimum 5% admin fee
+- default payout split 70/20/10
+
+## Notes
+
+The app caches each generated slate in `data/slates`. Regenerating a slate consumes Odds API credits, so use the admin regenerate button only when needed.
+
+The app has fallback lines if a sport/event does not provide all markets, but the best experience is when The Odds API returns h2h, spreads, and totals.

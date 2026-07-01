@@ -59,6 +59,15 @@
     <textarea id="share" style="width:100%;height:140px;margin-top:12px;background:#0b1629;color:#eef6ff;border:1px solid #273b60;border-radius:12px"></textarea>
     <canvas id="canvas" width="1200" height="1600" style="display:none"></canvas>
   </section>
+
+  <section class="card">
+    <h2>All Saved Submissions</h2>
+    <p class="muted">This shows every saved entry for the selected sport, including entries from older generated pools.</p>
+    <button id="allEntriesBtn" class="ghost">Refresh All Submissions</button>
+    <pre id="entryCounts"></pre>
+    <table id="allEntries"><thead><tr><th>Submitted</th><th>Pool</th><th>Sport</th><th>Name</th><th>Email</th><th>Picks</th></tr></thead><tbody></tbody></table>
+  </section>
+
 </main>
 <script>
 const tokenInput = document.getElementById('token');
@@ -80,6 +89,7 @@ async function load() {
   document.getElementById('payouts').textContent = `Share URL: ${data.share_url}\nEntrants: ${p.entrants}\nGross: $${p.gross.toFixed(2)}\nAdmin fee (${p.admin_fee_percent}%): $${p.admin_fee.toFixed(2)}\nNet pot: $${p.net_pot.toFixed(2)}\n1st: $${p.first.toFixed(2)}\n2nd: $${p.second.toFixed(2)}\n3rd: $${p.third.toFixed(2)}`;
   document.getElementById('links').textContent = `Shareable form: ${data.share_url}`;
   await loadBoard();
+  await loadAllEntries();
 }
 async function loadBoard() {
   const res = await fetch(withToken('/api/leaderboard'));
@@ -98,7 +108,31 @@ document.getElementById('test').onclick=async()=>{
   document.getElementById('apiResult').textContent=JSON.stringify(data,null,2);
 };
 document.getElementById('load').onclick=load;
-document.getElementById('regen').onclick=async()=>{const r=await fetch(withToken('/api/slate/regenerate'),{method:'POST'}); const j=await r.json(); if(!r.ok)alert(j.error); else load();};
+document.getElementById('regen').onclick=async()=>{const r=await fetch(withToken('/api/slate/regenerate'),{method:'POST'}); const j=await r.json(); if(!r.ok)alert(j.error); else 
+async function loadAllEntries() {
+  const res = await fetch(withToken('/api/admin/all-entries'));
+  const data = await res.json().catch(()=>({}));
+  if (!res.ok) {
+    document.getElementById('entryCounts').textContent = data.error || 'Could not load submissions.';
+    return;
+  }
+  document.getElementById('entryCounts').textContent =
+    `Total saved submissions for selected sport: ${data.total}\n` +
+    `By pool:\n${Object.entries(data.byPool || {}).map(([pool,count]) => `- ${pool}: ${count}`).join('\n') || '(none)'}`;
+
+  const tb = document.querySelector('#allEntries tbody');
+  tb.innerHTML = '';
+  data.entries.forEach(e => {
+    const tr = document.createElement('tr');
+    const pickCount = Array.isArray(e.picks) ? e.picks.length : 0;
+    tr.innerHTML = `<td>${new Date(e.timestamp).toLocaleString()}</td><td>${e.pool_id}</td><td>${e.sport_key || ''}</td><td>${e.name}</td><td>${e.email}</td><td>${pickCount}</td>`;
+    tb.appendChild(tr);
+  });
+}
+document.getElementById('allEntriesBtn').onclick = loadAllEntries;
+
+load();
+loadAllEntries();};
 document.getElementById('lock').onclick=async()=>{await fetch(withToken('/api/slate/lock'),{method:'POST'}); load();};
 document.getElementById('unlock').onclick=async()=>{await fetch(withToken('/api/slate/unlock'),{method:'POST'}); load();};
 document.getElementById('csv').onclick=()=>{location.href=withToken('/api/entries.csv');};

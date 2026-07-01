@@ -63,3 +63,15 @@ For the selected sport/week:
 The app caches each generated slate in `data/slates`. Regenerating a slate consumes Odds API credits, so use the admin regenerate button only when needed.
 
 The app has fallback lines if a sport/event does not provide all markets, but the best experience is when The Odds API returns h2h, spreads, and totals.
+
+
+## Submissions troubleshooting
+
+The admin dashboard has two submission views:
+
+1. **Leaderboard** — entries for the currently selected/generated pool only.
+2. **All Saved Submissions** — every saved entry for the selected sport, including older pools.
+
+If you regenerate a pool after users submit, the old entries remain saved but may not appear on the active leaderboard because they belong to the previous `pool_id`.
+
+If you deploy on a free host with ephemeral storage, entries can disappear after a redeploy/restart unless you connect persistent storage or a database.

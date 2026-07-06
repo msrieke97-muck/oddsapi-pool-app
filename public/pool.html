@@ -1,0 +1,223 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Weekly Pool — Make Your Picks</title>
+  <style>
+    :root{--bg:#07111f;--card:#101b2d;--ink:#eef6ff;--muted:#9fb2d6;--line:#203150;--accent:#4fc3ff;--ok:#41d695;--bad:#ff6b6b}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+    header{padding:22px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#0d1930,#07111f);position:sticky;top:0;z-index:3}
+    main{max-width:980px;margin:20px auto 80px;padding:0 16px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:16px}
+    h1{font-size:24px;margin:0 0 6px}.muted{color:var(--muted);font-size:13px}.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}input,select{width:100%;background:#0b1629;color:var(--ink);border:1px solid #273b60;border-radius:10px;padding:10px 12px}
+    button{background:var(--accent);color:#001629;border:0;border-radius:11px;padding:11px 14px;font-weight:700;cursor:pointer}.ghost{background:transparent;color:var(--muted);border:1px solid #2a426a}
+    .pill{display:inline-block;background:#0b2840;color:#aee2ff;border:1px solid #2b4c77;border-radius:999px;padding:4px 9px;font-size:12px}.section-title{font-size:18px;margin:8px 0 10px}
+    .game{border:1px solid #253a60;background:#0b1629;border-radius:14px;padding:12px;margin:10px 0}.game h4{margin:0 0 5px;font-size:15px}
+    .opts{display:flex;gap:10px;flex-wrap:wrap}.opt{flex:1;min-width:210px;border:1px solid #294269;background:#0e1a30;border-radius:12px;padding:9px}
+    .opt label{display:flex;justify-content:space-between;gap:8px;cursor:pointer}.divider{height:1px;background:var(--line);margin:12px 0}
+    pre{white-space:pre-wrap;background:#071326;border:1px solid #273b60;border-radius:12px;padding:12px;color:#bfe1ff}.err{color:var(--bad)} .ok{color:var(--ok)}
+  </style>
+</head>
+<body>
+<header>
+  <h1 id="title">Weekly Pool</h1>
+  <div id="subtitle" class="muted">Loading this week’s pool…</div>
+  <div id="status" class="pill" style="margin-top:8px">Draft not submitted</div>
+</header>
+
+<main>
+  <section class="card" id="signinCard">
+    <div class="section-title">Sign In to Enter</div>
+    <div class="two">
+      <label>Full Name<input id="name" placeholder="Michael Rieke"/></label>
+      <label>Email<input id="email" type="email" placeholder="you@example.com"/></label>
+    </div>
+    <div class="divider"></div>
+    <button type="button" id="continueBtn">Continue to Picks</button>
+    <div class="divider"></div>
+    <div class="muted">Buy-in: <b>$20</b>. Top 3 are paid after a minimum 5% admin fee. Exact payout amounts update in the admin dashboard.</div>
+  </section>
+
+  <section class="card pickArea" style="display:none">
+    <div class="section-title">This Week’s Selected Matchups</div>
+    <details open>
+      <summary class="muted" style="cursor:pointer">Show/hide full slate</summary>
+      <ul id="slateList" class="muted" style="line-height:1.7"></ul>
+    </details>
+  </section>
+
+  <form id="form" class="card pickArea" style="display:none">
+    <div class="section-title">Make Your 9 Picks</div>
+    <fieldset id="ml"></fieldset>
+    <fieldset id="sp"></fieldset>
+    <fieldset id="tot"></fieldset>
+    <div class="divider"></div>
+    <div class="two">
+      <label>Tiebreaker: total points/goals in the final listed matchup<input id="tiebreaker" type="number" min="0" step="1" placeholder="e.g., 3"/></label>
+      <div class="muted">Users can change picks freely until Submit. After submit, use the receipt link to replace picks until the pool locks.</div>
+    </div>
+    <div class="divider"></div>
+    <button type="submit">Submit Picks</button>
+    <button id="reset" type="button" class="ghost">Reset Draft</button>
+    <span id="error" class="err"></span>
+  </form>
+
+  <section class="card pickArea" style="display:none">
+    <div class="section-title">Entry Preview</div>
+    <pre id="preview"></pre>
+  </section>
+</main>
+
+<script>
+let slate = null;
+const params = new URL(location.href).searchParams;
+const sportKey = params.get('sport') || 'soccer_fifa_world_cup';
+let replaceToken = params.get('replaceToken');
+
+const qs = id => document.getElementById(id);
+const fmtOdds = o => (o === null || o === undefined || Number.isNaN(Number(o))) ? '' : (Number(o) > 0 ? '+' : '') + Math.round(Number(o));
+const marketName = m => m === 'ML' ? 'Moneyline' : m === 'SP' ? 'Spread' : 'Total';
+function draftKey(){return slate ? `pool-draft:${slate.pool_id}` : `pool-draft:${sportKey}`}
+function setStatus(txt, ok=false){const el=qs('status'); el.textContent=txt; el.style.background=ok?'#0f2b1e':'#0b2840'; el.style.color=ok?'#9ff0c8':'#aee2ff'}
+
+function showPickArea() {
+  if (!qs('name').value.trim() || !qs('email').value.trim()) { qs('error').textContent = 'Enter your name and email first.'; return; }
+  document.querySelectorAll('.pickArea').forEach(el => el.style.display = '');
+  collect(); saveDraft();
+}
+
+function renderSlate() {
+  qs('title').textContent = slate.sport_label + ' Pool';
+  qs('subtitle').textContent = `${slate.title} • Buy-in $${slate.buy_in}`;
+  const list = qs('slateList');
+  list.innerHTML = '';
+  slate.picks.forEach((p, i) => {
+    const li = document.createElement('li');
+    const fb = p.fallback ? ' • fallback line' : '';
+    li.textContent = `${i+1}. [${marketName(p.market)}] ${p.event_label} — ${new Date(p.datetime).toLocaleString()}${p.line ? ' • line ' + p.line : ''}${fb}`;
+    list.appendChild(li);
+  });
+
+  const groups = { ML: qs('ml'), SP: qs('sp'), TOT: qs('tot') };
+  Object.values(groups).forEach(g => g.innerHTML = '');
+  for (const p of slate.picks) {
+    const box = document.createElement('div');
+    box.className = 'game';
+    box.innerHTML = `<h4>[${marketName(p.market)}] ${p.event_label}</h4><div class="muted">${new Date(p.datetime).toLocaleString()} • ${p.bookmaker || ''}</div><div class="opts"></div>`;
+    const opts = box.querySelector('.opts');
+    p.options.forEach(opt => {
+      const id = `${p.pick_id}_${String(opt.key).replace(/[^a-z0-9]/gi,'_')}`;
+      const div = document.createElement('div');
+      div.className = 'opt';
+      div.innerHTML = `<input type="radio" id="${id}" name="${p.pick_id}" value="${opt.key}" data-pickid="${p.pick_id}">
+        <label for="${id}"><b>${opt.label}</b><small>${fmtOdds(opt.odds)}</small></label>`;
+      opts.appendChild(div);
+    });
+    groups[p.market].appendChild(box);
+  }
+}
+
+function collect() {
+  const picks = [];
+  document.querySelectorAll('.game').forEach(game => {
+    const input = game.querySelector('input:checked');
+    if (!input) return;
+    const p = slate.picks.find(x => x.pick_id === input.dataset.pickid);
+    const option = p.options.find(o => String(o.key) === String(input.value));
+    picks.push({ pick_id:p.pick_id, market:p.market, event_id:p.event_id, event_label:p.event_label, pick:option.key, label:option.label });
+  });
+  const lines = [
+    `Name: ${qs('name').value}`,
+    `Email: ${qs('email').value}`,
+    `Tiebreaker: ${qs('tiebreaker').value || '(none)'}`,
+    `Picks (${picks.length}/9):`,
+    ...picks.map((p,i)=>`${i+1}. [${marketName(p.market)}] ${p.event_label} — ${p.label}`)
+  ];
+  qs('preview').textContent = lines.join('\n');
+  return picks;
+}
+
+function saveDraft() {
+  if (!slate) return;
+  const checked = Array.from(document.querySelectorAll('input[type=radio]:checked')).map(i => ({ name:i.name, value:i.value }));
+  const payload = { name:qs('name').value, email:qs('email').value, tiebreaker:qs('tiebreaker').value, checked };
+  localStorage.setItem(draftKey(), JSON.stringify(payload));
+  setStatus(replaceToken ? 'Replace mode — draft not submitted' : 'Draft not submitted');
+}
+
+function loadDraft() {
+  try {
+    const raw = localStorage.getItem(draftKey());
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    qs('name').value = d.name || '';
+    qs('email').value = d.email || '';
+    qs('tiebreaker').value = d.tiebreaker || '';
+    (d.checked||[]).forEach(c => {
+      const el = document.querySelector(`input[name="${c.name}"][value="${c.value}"]`);
+      if (el) el.checked = true;
+    });
+    if (qs('name').value || qs('email').value) document.querySelectorAll('.pickArea').forEach(el => el.style.display = '');
+    collect();
+  } catch {}
+}
+
+async function loadReplace() {
+  if (!replaceToken) return;
+  const res = await fetch(`/api/entries/replace/prefill?token=${encodeURIComponent(replaceToken)}`);
+  if (!res.ok) { qs('error').textContent = 'Replace link is invalid, expired, or locked.'; return; }
+  const { snapshot } = await res.json();
+  qs('name').value = snapshot.name || '';
+  qs('email').value = snapshot.email || '';
+  qs('tiebreaker').value = snapshot.tiebreaker_total || '';
+  (snapshot.picks || []).forEach(p => {
+    const el = document.querySelector(`input[name="${p.pick_id}"][value="${p.pick}"]`);
+    if (el) el.checked = true;
+  });
+  document.querySelectorAll('.pickArea').forEach(el => el.style.display = '');
+  setStatus('Replace mode — draft not submitted');
+  collect();
+}
+
+async function load() {
+  const res = await fetch(`/api/slate/current?sport=${encodeURIComponent(sportKey)}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not load slate');
+  slate = data;
+  renderSlate();
+  loadDraft();
+  await loadReplace();
+  collect();
+}
+
+document.addEventListener('click', e => { if (e.target && e.target.id === 'continueBtn') showPickArea(); });
+document.addEventListener('change', e => { if (e.target.matches('input')) { collect(); saveDraft(); }});
+['name','email','tiebreaker'].forEach(id => qs(id).addEventListener('input', () => { collect(); saveDraft(); }));
+
+qs('reset').addEventListener('click', () => {
+  localStorage.removeItem(draftKey());
+  qs('form').reset(); qs('preview').textContent=''; setStatus('Draft not submitted');
+});
+
+qs('form').addEventListener('submit', async e => {
+  e.preventDefault();
+  qs('error').textContent='';
+  const picks = collect();
+  if (!qs('name').value || !qs('email').value) { qs('error').textContent='Enter your name and email.'; return; }
+  if (picks.length !== 9) { qs('error').textContent='Make all 9 picks.'; return; }
+  const body = { name:qs('name').value.trim(), email:qs('email').value.trim(), pool_id:slate.pool_id, picks, tiebreaker_total:qs('tiebreaker').value };
+  const url = replaceToken ? `/api/entries?replaceToken=${encodeURIComponent(replaceToken)}` : '/api/entries';
+  const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  const data = await res.json().catch(()=>({}));
+  if (!res.ok) { qs('error').textContent=data.error || 'Submission failed.'; return; }
+  localStorage.removeItem(draftKey());
+  setStatus('Submitted — receipt link can replace until lock', true);
+  document.querySelectorAll('input, button').forEach(el => el.disabled = true);
+  alert('Picks submitted. Check your email receipt if SMTP is configured.');
+});
+
+load().catch(e => { qs('error').textContent = e.message; qs('subtitle').textContent = 'Could not load pool.'; });
+</script>
+</body>
+</html>

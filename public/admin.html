@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Pool Admin</title>
+  <style>
+    body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+    main{max-width:1180px;margin:20px auto;padding:0 16px 60px}.card{background:#101b2d;border:1px solid #203150;border-radius:16px;padding:16px;margin-bottom:16px}
+    input,select,button{border-radius:10px;padding:10px 12px}input,select{background:#0b1629;color:#eef6ff;border:1px solid #273b60}button{background:#4fc3ff;color:#001629;border:0;font-weight:700;cursor:pointer}.ghost{background:transparent;color:#9fb2d6;border:1px solid #2a426a}
+    table{width:100%;border-collapse:collapse;font-size:13px}th,td{border-bottom:1px solid #253a60;padding:8px;text-align:left;vertical-align:top}.muted{color:#9fb2d6;font-size:13px}pre{white-space:pre-wrap;background:#071326;border:1px solid #273b60;border-radius:12px;padding:12px;overflow:auto}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.err{color:#ffb4b4}.ok{color:#41d695}.small{font-size:12px}
+  </style>
+</head>
+<body>
+<main>
+  <section class="card">
+    <h1>Pool Admin</h1>
+    <p class="muted">Full admin access. Do not share this tokenized admin link publicly.</p>
+    <div class="row">
+      <label>Admin Token <input id="token" style="min-width:360px"/></label>
+      <label>Sport
+        <select id="sport">
+          <option value="soccer_fifa_world_cup">World Cup</option>
+          <option value="americanfootball_nfl">NFL</option>
+          <option value="americanfootball_ncaaf">College Football</option>
+          <option value="basketball_nba">NBA</option>
+          <option value="icehockey_nhl">NHL</option>
+          <option value="baseball_mlb">MLB</option>
+          <option value="soccer_usa_mls">MLS</option>
+        </select>
+      </label>
+      <button id="test">Test API</button>
+      <button id="load">Load</button>
+      <button id="regen">Regenerate Slate</button>
+      <button id="manualFallback" class="ghost">Create Manual Fallback Slate</button>
+      <button id="lock">Lock</button>
+      <button id="unlock" class="ghost">Unlock</button>
+      <button id="csv" class="ghost">Download CSV</button>
+    </div>
+    <div id="links" class="muted" style="margin-top:10px"></div>
+    <pre id="adminStatus">Ready.</pre>
+    <pre id="apiResult"></pre>
+  </section>
+
+  <section class="card">
+    <h2>Saved Slates</h2>
+    <p class="muted">This confirms whether pools are saved on this server, even if The Odds API fails.</p>
+    <button id="savedSlatesBtn" class="ghost">Refresh Saved Slates</button>
+    <table id="savedSlates"><thead><tr><th>Created</th><th>Pool ID</th><th>Title</th><th>Picks</th><th>Locked</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section class="card">
+    <h2>Slate</h2>
+    <pre id="slate"></pre>
+  </section>
+
+  <section class="card">
+    <h2>Payouts</h2>
+    <pre id="payouts"></pre>
+  </section>
+
+  <section class="card">
+    <h2>Leaderboard</h2>
+    <button id="copy">Copy Shareable Leaderboard</button>
+    <button id="png" class="ghost">Export PNG</button>
+    <table id="board"><thead><tr><th>Rank</th><th>Name</th><th>Email</th><th>Correct</th><th>Settled</th></tr></thead><tbody></tbody></table>
+    <textarea id="share" style="width:100%;height:140px;margin-top:12px;background:#0b1629;color:#eef6ff;border:1px solid #273b60;border-radius:12px"></textarea>
+    <canvas id="canvas" width="1200" height="1600" style="display:none"></canvas>
+  </section>
+
+  <section class="card">
+    <h2>All Saved Submissions</h2>
+    <p class="muted">This shows every saved entry for the selected sport, including entries from older generated pools.</p>
+    <button id="allEntriesBtn" class="ghost">Refresh All Submissions</button>
+    <pre id="entryCounts"></pre>
+    <table id="allEntries"><thead><tr><th>Submitted</th><th>Pool</th><th>Sport</th><th>Name</th><th>Email</th><th>Picks</th></tr></thead><tbody></tbody></table>
+  </section>
+</main>
+
+<script>
+const tokenInput = document.getElementById('token');
+const sportInput = document.getElementById('sport');
+const statusBox = document.getElementById('adminStatus');
+const params = new URL(location.href).searchParams;
+tokenInput.value = params.get('token') || '';
+sportInput.value = params.get('sport') || 'soccer_fifa_world_cup';
+
+function withToken(path) {
+  return `${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(tokenInput.value)}&sport=${encodeURIComponent(sportInput.value)}`;
+}
+function setStatus(text, isError=false) {
+  statusBox.textContent = text;
+  statusBox.className = isError ? 'err' : 'ok';
+}
+function safeMoney(n) {
+  const num = Number(n || 0);
+  return `$${num.toFixed(2)}`;
+}
+
+async function loadSavedSlates() {
+  const res = await fetch(withToken('/api/admin/slates'));
+  const data = await res.json().catch(() => ({}));
+  const tb = document.querySelector('#savedSlates tbody');
+  tb.innerHTML = '';
+  if (!res.ok) {
+    setStatus(data.error || `Could not load saved slates. HTTP ${res.status}`, true);
+    return;
+  }
+  data.slates.forEach(s => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${s.created_at ? new Date(s.created_at).toLocaleString() : ''}</td><td>${s.pool_id}</td><td>${s.title || ''}</td><td>${s.picks_count}</td><td>${s.locked_at ? 'Yes' : 'No'}</td>`;
+    tb.appendChild(tr);
+  });
+}
+
+async function loadBoard() {
+  const res = await fetch(withToken('/api/leaderboard'));
+  const data = await res.json().catch(() => ({}));
+  const tb = document.querySelector('#board tbody');
+  tb.innerHTML = '';
+  if (!res.ok) {
+    // Leaderboard can fail if there are no scores yet; don't block the whole admin page.
+    return;
+  }
+  data.entries.forEach((e, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${i+1}</td><td>${e.name}</td><td>${e.email}</td><td>${e.correct}</td><td>${e.settled}</td>`;
+    tb.appendChild(tr);
+  });
+}
+
+async function loadAllEntries() {
+  const res = await fetch(withToken('/api/admin/all-entries'));
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    document.getElementById('entryCounts').textContent = data.error || `Could not load submissions. HTTP ${res.status}`;
+    return;
+  }
+  document.getElementById('entryCounts').textContent =
+    `Total saved submissions for selected sport: ${data.total}\n` +
+    `By pool:\n${Object.entries(data.byPool || {}).map(([pool,count]) => `- ${pool}: ${count}`).join('\n') || '(none)'}`;
+
+  const tb = document.querySelector('#allEntries tbody');
+  tb.innerHTML = '';
+  data.entries.forEach(e => {
+    const tr = document.createElement('tr');
+    const pickCount = Array.isArray(e.picks) ? e.picks.length : 0;
+    tr.innerHTML = `<td>${new Date(e.timestamp).toLocaleString()}</td><td>${e.pool_id}</td><td>${e.sport_key || ''}</td><td>${e.name}</td><td>${e.email}</td><td>${pickCount}</td>`;
+    tb.appendChild(tr);
+  });
+}
+
+async function load() {
+  setStatus('Loading admin summary...');
+  const res = await fetch(withToken('/api/admin/current-or-latest'));
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    setStatus(data.error || `Admin load failed. HTTP ${res.status}`, true);
+    document.getElementById('slate').textContent = 'No slate loaded. Try Test API, Regenerate Slate, or check environment variables.';
+    await loadSavedSlates();
+    await loadAllEntries();
+    return;
+  }
+
+  setStatus(data.api_error
+    ? `Loaded latest saved slate, but current API load failed: ${data.api_error}`
+    : `Loaded ${data.source || 'current'} slate successfully.`);
+
+  document.getElementById('slate').textContent = JSON.stringify({
+    pool_id: data.slate.pool_id,
+    sport_key: data.slate.sport_key,
+    title: data.slate.title,
+    locked_at: data.slate.locked_at,
+    share_url: data.share_url,
+    meta: data.slate.meta,
+    picks: data.slate.picks
+  }, null, 2);
+
+  const p = data.payouts || {};
+  document.getElementById('payouts').textContent =
+    `Share URL: ${data.share_url}\n` +
+    `Entrants: ${p.entrants || 0}\n` +
+    `Gross: ${safeMoney(p.gross)}\n` +
+    `Admin fee (${p.admin_fee_percent || 5}%): ${safeMoney(p.admin_fee)}\n` +
+    `Net pot: ${safeMoney(p.net_pot)}\n` +
+    `1st: ${safeMoney(p.first)}\n` +
+    `2nd: ${safeMoney(p.second)}\n` +
+    `3rd: ${safeMoney(p.third)}`;
+
+  document.getElementById('links').textContent = `Shareable form: ${data.share_url}`;
+  await loadSavedSlates();
+  await loadBoard();
+  await loadAllEntries();
+}
+
+document.getElementById('test').onclick = async () => {
+  setStatus('Testing The Odds API...');
+  const res = await fetch(withToken('/api/test-api'));
+  const data = await res.json().catch(() => ({}));
+  document.getElementById('apiResult').textContent = JSON.stringify(data, null, 2);
+  if (!res.ok || data.ok === false) setStatus(data.error || `Test API failed. HTTP ${res.status}`, true);
+  else setStatus(`Test API successful. Events with odds: ${data.events_with_odds}`);
+};
+
+document.getElementById('load').onclick = load;
+
+document.getElementById('regen').onclick = async () => {
+  setStatus('Regenerating slate...');
+  const res = await fetch(withToken('/api/slate/regenerate'), { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    setStatus(data.error || `Regenerate failed. HTTP ${res.status}`, true);
+    return;
+  }
+  setStatus('Regenerated slate successfully.');
+  await load();
+};
+
+
+document.getElementById('manualFallback').onclick = async () => {
+  if (!confirm('This creates a playable 9-pick placeholder slate if The Odds API has no available events. Continue?')) return;
+  setStatus('Creating manual fallback slate...');
+  const res = await fetch(withToken('/api/slate/manual-fallback'), { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    setStatus(data.error || `Manual fallback failed. HTTP ${res.status}`, true);
+    return;
+  }
+  setStatus('Manual fallback slate created.');
+  await load();
+};
+
+document.getElementById('lock').onclick = async () => {
+  const res = await fetch(withToken('/api/slate/lock'), { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) setStatus(data.error || `Lock failed. HTTP ${res.status}`, true);
+  else await load();
+};
+
+document.getElementById('unlock').onclick = async () => {
+  const res = await fetch(withToken('/api/slate/unlock'), { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) setStatus(data.error || `Unlock failed. HTTP ${res.status}`, true);
+  else await load();
+};
+
+document.getElementById('csv').onclick = () => {
+  location.href = withToken('/api/entries.csv');
+};
+
+document.getElementById('savedSlatesBtn').onclick = loadSavedSlates;
+document.getElementById('allEntriesBtn').onclick = loadAllEntries;
+
+document.getElementById('copy').onclick = () => {
+  const rows = Array.from(document.querySelectorAll('#board tbody tr')).map(tr => Array.from(tr.children).map(td => td.textContent));
+  const txt = `${sportInput.options[sportInput.selectedIndex].text} Pool Leaderboard\n` +
+    rows.map(r => `${r[0]}. ${r[1]} — ${r[3]} correct (${r[4]} settled)`).join('\n') +
+    '\n\n' + document.getElementById('payouts').textContent;
+  document.getElementById('share').value = txt;
+  navigator.clipboard?.writeText(txt);
+};
+
+document.getElementById('png').onclick = () => {
+  const c = document.getElementById('canvas'), ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0,0,c.width,c.height);
+  ctx.fillStyle = '#000'; ctx.font = '30px system-ui';
+  ctx.fillText(`${sportInput.options[sportInput.selectedIndex].text} Pool Leaderboard`, 40, 60);
+  ctx.font = '18px system-ui';
+  let y = 110;
+  Array.from(document.querySelectorAll('#board tbody tr')).forEach(tr => {
+    const r = Array.from(tr.children).map(td => td.textContent);
+    ctx.fillText(`${r[0]}. ${r[1]} — ${r[3]} correct (${r[4]} settled)`, 40, y);
+    y += 28;
+  });
+  const a = document.createElement('a');
+  a.href = c.toDataURL('image/png');
+  a.download = 'pool-leaderboard.png';
+  a.click();
+};
+
+sportInput.addEventListener('change', () => {
+  const url = new URL(location.href);
+  url.searchParams.set('sport', sportInput.value);
+  history.replaceState(null, '', url.toString());
+  load();
+});
+
+load();
+</script>
+</body>
+</html>
